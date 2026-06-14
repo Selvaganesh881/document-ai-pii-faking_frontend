@@ -77,14 +77,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "Document AI" },
+      { name: "description", content: "Field Extraction with PII Faking & LLMs" },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "Document AI" },
+      { property: "og:description", content: "Field Extraction with PII Faking & LLMs" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Document AI" },
+      { name: "twitter:description", content: "Field Extraction with PII Faking & LLMs" },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/92a66a8a-2408-4a07-a37f-a68a954978da/id-preview-60d9b110--cbf918f6-8d80-4822-a650-347bb1da76f5.lovable.app-1781450479426.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/92a66a8a-2408-4a07-a37f-a68a954978da/id-preview-60d9b110--cbf918f6-8d80-4822-a650-347bb1da76f5.lovable.app-1781450479426.png" },
     ],
     links: [
       {
