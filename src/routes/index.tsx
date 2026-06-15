@@ -4,6 +4,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileText, ShieldCheck, Database, ArrowRight } from "lucide-react";
+import { getDashboardStats, type RecentRun, type DashboardStats } from "@/lib/api";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -16,35 +17,27 @@ export const Route = createFileRoute("/")({
 });
 
 function Dashboard() {
-  // 1. Set up state variables to hold our live database data
-  const [dashboardData, setDashboardData] = useState({
+  const [dashboardData, setDashboardData] = useState<DashboardStats>({
     documents_processed: 0,
     entities_masked: 0,
-    records_in_db: 0
+    records_in_db: 0,
   });
-  const [recentRuns, setRecentRuns] = useState<any[]>([]);
+  const [recentRuns, setRecentRuns] = useState<RecentRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 2. Fetch data from FastAPI when the component loads
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const response = await fetch("http://localhost:8000/api/dashboard-stats");
-        const result = await response.json();
-        
+    const controller = new AbortController();
+    getDashboardStats(controller.signal)
+      .then((result) => {
         if (result.status === "success") {
           setDashboardData(result.stats);
           setRecentRuns(result.recent_runs);
         }
-      } catch (error) {
-        console.error("Failed to load dashboard data:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchStats();
-  }, []); // Empty array means this runs exactly once on page load
+      })
+      .catch((error) => console.error("Failed to load dashboard data:", error))
+      .finally(() => setIsLoading(false));
+    return () => controller.abort();
+  }, []);
 
   // 3. Dynamically map the icons to the live data
   const stats = [

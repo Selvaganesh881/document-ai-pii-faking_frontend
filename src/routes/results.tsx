@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
+import { getResults, type ResultRow } from "@/lib/api";
 
 export const Route = createFileRoute("/results")({
   head: () => ({
@@ -26,34 +28,26 @@ export const Route = createFileRoute("/results")({
   component: Results,
 });
 
-const rows = [
-  {
-    id: "r_001",
-    doc: "test_word_01.pdf",
-    date: "2026-06-14 10:24",
-    status: "complete",
-    holder: "David Mcguire",
-    balance: 683242,
-  },
-  {
-    id: "r_002",
-    doc: "invoice_q2_apr.pdf",
-    date: "2026-06-13 17:08",
-    status: "complete",
-    holder: "Sarah Lin",
-    balance: 12480,
-  },
-  {
-    id: "r_003",
-    doc: "statement_2026_03.pdf",
-    date: "2026-06-12 09:55",
-    status: "failed",
-    holder: "—",
-    balance: null,
-  },
-];
-
 function Results() {
+  const [rows, setRows] = useState<ResultRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getResults(controller.signal)
+      .then((r) => {
+        if (r.status === "success") setRows(r.results);
+      })
+      .catch((err) => console.error("Failed to load results:", err))
+      .finally(() => setIsLoading(false));
+    return () => controller.abort();
+  }, []);
+
+  const filtered = rows.filter((r) =>
+    r.original_filename.toLowerCase().includes(query.toLowerCase()),
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <AppHeader />
@@ -67,7 +61,12 @@ function Results() {
           </div>
           <div className="relative w-full max-w-xs">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search documents…" className="pl-9" />
+            <Input
+              placeholder="Search documents…"
+              className="pl-9"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
           </div>
         </div>
 
@@ -81,31 +80,41 @@ function Results() {
                 <TableRow>
                   <TableHead>Document</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead>Account Holder</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.doc}</TableCell>
-                    <TableCell className="text-muted-foreground">{r.date}</TableCell>
-                    <TableCell>{r.holder}</TableCell>
-                    <TableCell className="text-right font-mono">
-                      {r.balance !== null ? r.balance.toLocaleString() : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {r.status === "complete" ? (
-                        <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                          complete
-                        </Badge>
-                      ) : (
-                        <Badge variant="destructive">failed</Badge>
-                      )}
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center text-muted-foreground">
+                      Loading…
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center text-muted-foreground">
+                      No results found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filtered.map((r) => (
+                    <TableRow key={r.id}>
+                      <TableCell className="font-medium">{r.original_filename}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {new Date(r.created_at).toLocaleString()}
+                      </TableCell>
+                      <TableCell>
+                        {r.status === "complete" ? (
+                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+                            complete
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive">{r.status}</Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </CardContent>
