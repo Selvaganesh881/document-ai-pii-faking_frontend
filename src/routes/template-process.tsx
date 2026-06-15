@@ -74,8 +74,9 @@ function TemplateProcess() {
     formData.append("json_schema", schema);
 
     try {
-      // Connect to your FastAPI backend
-      const response = await fetch("http://localhost:8000/api/process", {
+      // Connect to your FastAPI backend (override via VITE_API_BASE_URL)
+      const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+      const response = await fetch(`${apiBase}/api/process`, {
         method: "POST",
         body: formData,
       });
