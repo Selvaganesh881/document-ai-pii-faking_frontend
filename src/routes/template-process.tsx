@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Rocket, CheckCircle2, Loader2, Search, AlertCircle } from "lucide-react";
+import { processDocument, ApiError } from "@/lib/api";
 
 export const Route = createFileRoute("/template-process")({
   head: () => ({
@@ -67,24 +68,14 @@ function TemplateProcess() {
     setStatus("running");
     setErrorMessage("");
 
-    // Package the data for the API
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("user_instruction", instruction);
-    formData.append("json_schema", schema);
-
     try {
-      // Connect to your FastAPI backend (override via VITE_API_BASE_URL)
-      const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-      const response = await fetch(`${apiBase}/api/process`, {
-        method: "POST",
-        body: formData,
+      const result = await processDocument({
+        file,
+        user_instruction: instruction,
+        json_schema: schema,
       });
 
-      const result = await response.json();
-
       if (result.status === "success") {
-        // Save the real data to state so the UI updates
         setOriginalText(result.original_text);
         setMaskedText(result.masked_text);
         setExtractedJson(result.extracted_json);
@@ -94,9 +85,13 @@ function TemplateProcess() {
         setErrorMessage(result.message || "Pipeline failed processing.");
         setStatus("error");
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("API Error:", error);
-      setErrorMessage("Failed to connect to the Python backend. Is uvicorn running?");
+      setErrorMessage(
+        error instanceof ApiError
+          ? error.message
+          : "Unexpected error while calling the backend.",
+      );
       setStatus("error");
     }
   };
