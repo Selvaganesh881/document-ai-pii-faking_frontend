@@ -2,18 +2,30 @@ import { useRef, useState } from "react";
 import { FileText, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type UploadedFile = { name: string; size: number };
-
-export function PdfUploadZone() {
-  const [file, setFile] = useState<UploadedFile | null>({
-    name: "test_word_01.pdf",
-    size: 196_800,
-  });
+export function PdfUploadZone({ onFileSelect }: { onFileSelect?: (file: File | null) => void }) {
+  // 1. Remove the mock data and store the actual File object
+  const [file, setFile] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const onPick = (f: File | undefined) => {
     if (!f) return;
-    setFile({ name: f.name, size: f.size });
+    setFile(f);
+    // 2. Send the actual file up to the parent page
+    if (onFileSelect) {
+      onFileSelect(f);
+    }
+  };
+
+  const handleRemove = () => {
+    setFile(null);
+    // Tell the parent page the file was cleared
+    if (onFileSelect) {
+      onFileSelect(null); 
+    }
+    // Clear the hidden input so the user can select the same file again if they want
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
   };
 
   return (
@@ -49,7 +61,7 @@ export function PdfUploadZone() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setFile(null)}
+              onClick={handleRemove}
               aria-label="Remove file"
             >
               <X className="h-4 w-4" />
