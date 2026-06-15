@@ -1,11 +1,12 @@
 import { FileText, Shield } from "lucide-react";
+import { memo } from "react";
 
 type Props = {
   original: string;
   anonymized: string;
 };
 
-export function DocumentComparison({ original, anonymized }: Props) {
+export const DocumentComparison = memo(function DocumentComparison({ original, anonymized }: Props) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Panel
@@ -21,7 +22,7 @@ export function DocumentComparison({ original, anonymized }: Props) {
       />
     </div>
   );
-}
+});
 
 function Panel({
   icon,

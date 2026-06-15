@@ -1,11 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useRef, memo } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { PdfUploadZone } from "@/components/PdfUploadZone";
 import { DocumentComparison } from "@/components/DocumentComparison";
 import { JsonResponseViewer } from "@/components/JsonResponseViewer";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Rocket, CheckCircle2, Loader2, Search, AlertCircle } from "lucide-react";
 import { processDocument, ApiError } from "@/lib/api";
@@ -41,24 +40,213 @@ const DEFAULT_SCHEMA = `{
 
 type Status = "idle" | "running" | "complete" | "error";
 
+// ------------------------------------------------------------------
+// 1. Reusable, safe Textarea component (Freeze issue fixed here)
+// ------------------------------------------------------------------
+const TextareaInput = memo(function TextareaInput({
+  label,
+  defaultValue,
+  inputRef,
+}: {
+  label: string;
+  defaultValue: string;
+  inputRef: React.RefObject<HTMLTextAreaElement>;
+}) {
+  return (
+    <div>
+      <label className="mb-2 block text-sm font-medium">{label}</label>
+      <textarea
+        ref={inputRef}
+        defaultValue={defaultValue}
+        spellCheck={false}
+        rows={10}
+        className="w-full h-64 rounded-md border border-slate-300 bg-slate-50 p-4 font-mono text-xs leading-relaxed text-slate-900 shadow-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      />
+    </div>
+  );
+});
+
+// ------------------------------------------------------------------
+// 2. Configuration Panel (Input API)
+// ------------------------------------------------------------------
+function ConfigurationPanel({
+  setFile,
+  instructionRef,
+  schemaRef,
+  status,
+  errorMessage,
+  onReset,
+  onExecute,
+}: {
+  setFile: (file: File | null) => void;
+  instructionRef: React.RefObject<HTMLTextAreaElement>;
+  schemaRef: React.RefObject<HTMLTextAreaElement>;
+  status: Status;
+  errorMessage: string;
+  onReset: () => void;
+  onExecute: () => void;
+}) {
+  return (
+    <section className="lg:col-span-5">
+      <h2 className="mb-4 text-lg font-bold tracking-tight">1. Configuration</h2>
+
+      <div className="space-y-5">
+        <div>
+          <label className="mb-2 block text-sm font-medium">Upload Financial PDF</label>
+          <PdfUploadZone onFileSelect={setFile} />
+        </div>
+
+        <TextareaInput
+          label="User Instruction"
+          defaultValue={DEFAULT_INSTRUCTION}
+          inputRef={instructionRef}
+        />
+
+        <TextareaInput
+          label="Expected JSON Schema"
+          defaultValue={DEFAULT_SCHEMA}
+          inputRef={schemaRef}
+        />
+
+        {status === "error" && (
+          <div className="flex items-center gap-2 rounded-md bg-red-50 p-3 text-sm text-red-600">
+            <AlertCircle className="h-4 w-4" />
+            {errorMessage}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <Button onClick={onReset} variant="outline" className="flex-1">
+            Reset Defaults
+          </Button>
+          <Button
+            onClick={onExecute}
+            disabled={status === "running"}
+            className="flex-1 bg-[#FF6F61] text-white hover:bg-[#FF6F61]/90"
+          >
+            {status === "running" ? (
+              <span className="flex items-center justify-center">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                Running…
+              </span>
+            ) : (
+              <span className="flex items-center justify-center">
+                <Rocket className="mr-2 h-5 w-5" />
+                Execute Pipeline
+              </span>
+            )}
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ------------------------------------------------------------------
+// 3. Results Panel (Output View)
+// ------------------------------------------------------------------
+function ExecutionResultsPanel({
+  status,
+  originalText,
+  maskedText,
+  extractedJson,
+  unmaskedJson,
+}: {
+  status: Status;
+  originalText: string;
+  maskedText: string;
+  extractedJson: any;
+  unmaskedJson: any;
+}) {
+  return (
+    <section className="lg:col-span-7">
+      <h2 className="mb-4 text-lg font-bold tracking-tight">2. Pipeline Execution</h2>
+
+      <Card className="mb-6">
+        <CardContent className="flex items-center gap-2 py-3">
+          {status === "running" ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <span className="text-sm">Executing graph... Documenting passing to Qwen3-4B...</span>
+            </>
+          ) : status === "complete" ? (
+            <>
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              <span className="text-sm font-medium">Graph Execution Complete!</span>
+            </>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              Upload a file and click Execute to run the pipeline.
+            </span>
+          )}
+        </CardContent>
+      </Card>
+
+      {status === "complete" && (
+        <>
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Search className="h-4 w-4" />
+                Document Comparison
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DocumentComparison original={originalText} anonymized={maskedText} />
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm text-muted-foreground">
+                  🔒 LLM Output (Anonymized Data)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-2">
+                <JsonResponseViewer data={extractedJson} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm font-bold text-coral">
+                  🔓 Final Output (Restored Real Data)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-2">
+                <JsonResponseViewer data={unmaskedJson} />
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+// ------------------------------------------------------------------
+// 4. Main Parent Component (State Orchestrator)
+// ------------------------------------------------------------------
 function TemplateProcess() {
-  // --- 1. Input State ---
+  const instructionRef = useRef<HTMLTextAreaElement>(null);
+  const schemaRef = useRef<HTMLTextAreaElement>(null);
+
   const [file, setFile] = useState<File | null>(null);
-  const [instruction, setInstruction] = useState(DEFAULT_INSTRUCTION);
-  const [schema, setSchema] = useState(DEFAULT_SCHEMA);
-  
-  // --- 2. Pipeline State ---
-  const [status, setStatus] = useState<Status>("idle"); // Start idle, not complete
+  const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState("");
 
-  // --- 3. Backend Response State ---
   const [originalText, setOriginalText] = useState("");
   const [maskedText, setMaskedText] = useState("");
   const [extractedJson, setExtractedJson] = useState<any>(null);
   const [unmaskedJson, setUnmaskedJson] = useState<any>(null);
 
-  const execute = async () => {
-    // Basic validation before hitting the server
+  const handleResetDefaults = () => {
+    if (instructionRef.current) instructionRef.current.value = DEFAULT_INSTRUCTION;
+    if (schemaRef.current) schemaRef.current.value = DEFAULT_SCHEMA;
+  };
+
+  const handleExecute = async () => {
     if (!file) {
       setErrorMessage("Please upload a PDF document first.");
       setStatus("error");
@@ -69,10 +257,13 @@ function TemplateProcess() {
     setErrorMessage("");
 
     try {
+      const currentInstruction = instructionRef.current?.value || "";
+      const currentSchema = schemaRef.current?.value || "";
+
       const result = await processDocument({
         file,
-        user_instruction: instruction,
-        json_schema: schema,
+        user_instruction: currentInstruction,
+        json_schema: currentSchema,
       });
 
       if (result.status === "success") {
@@ -90,7 +281,7 @@ function TemplateProcess() {
       setErrorMessage(
         error instanceof ApiError
           ? error.message
-          : "Unexpected error while calling the backend.",
+          : "Unexpected error while calling the backend."
       );
       setStatus("error");
     }
@@ -102,131 +293,28 @@ function TemplateProcess() {
       <main className="mx-auto max-w-7xl px-6 py-8">
         <div className="grid gap-6 lg:grid-cols-12">
           
-          {/* --- Configuration Column --- */}
-          <section className="lg:col-span-5">
-            <h2 className="mb-4 text-lg font-bold tracking-tight">1. Configuration</h2>
+          <ConfigurationPanel
+            setFile={setFile}
+            instructionRef={instructionRef}
+            schemaRef={schemaRef}
+            status={status}
+            errorMessage={errorMessage}
+            onReset={handleResetDefaults}
+            onExecute={handleExecute}
+          />
 
-            <div className="space-y-5">
-              <div>
-                <label className="mb-2 block text-sm font-medium">Upload Financial PDF</label>
-                {/* Notice how we capture the file here */}
-                <PdfUploadZone onFileSelect={(selectedFile) => setFile(selectedFile)} />
-              </div>
+          <ExecutionResultsPanel
+            status={status}
+            originalText={originalText}
+            maskedText={maskedText}
+            extractedJson={extractedJson}
+            unmaskedJson={unmaskedJson}
+          />
 
-              <div>
-                <label className="mb-2 block text-sm font-medium">User Instruction</label>
-                <Textarea
-                  value={instruction}
-                  onChange={(e) => setInstruction(e.target.value)}
-                  rows={8}
-                  className="resize-y bg-muted/30 font-mono text-xs leading-relaxed"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium">Expected JSON Schema</label>
-                <Textarea
-                  value={schema}
-                  onChange={(e) => setSchema(e.target.value)}
-                  rows={8}
-                  className="resize-y bg-muted/30 font-mono text-xs leading-relaxed"
-                />
-              </div>
-
-              {status === "error" && (
-                <div className="flex items-center gap-2 rounded-md bg-red-50 p-3 text-sm text-red-600">
-                  <AlertCircle className="h-4 w-4" />
-                  {errorMessage}
-                </div>
-              )}
-
-              <Button
-                onClick={execute}
-                disabled={status === "running"}
-                className="h-12 w-full bg-coral text-base font-semibold text-white hover:bg-coral/90"
-              >
-                {status === "running" ? (
-                  <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Running pipeline…
-                  </>
-                ) : (
-                  <>
-                    <Rocket className="mr-2 h-5 w-5" />
-                    Execute LangGraph Pipeline
-                  </>
-                )}
-              </Button>
-            </div>
-          </section>
-
-          {/* --- Execution Column --- */}
-          <section className="lg:col-span-7">
-            <h2 className="mb-4 text-lg font-bold tracking-tight">2. Pipeline Execution</h2>
-
-            <Card className="mb-6">
-              <CardContent className="flex items-center gap-2 py-3">
-                {status === "running" ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                    <span className="text-sm">Executing graph... Documenting passing to Qwen3-4B...</span>
-                  </>
-                ) : status === "complete" ? (
-                  <>
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
-                    <span className="text-sm font-medium">Graph Execution Complete!</span>
-                  </>
-                ) : (
-                  <span className="text-sm text-muted-foreground">
-                    Upload a file and click Execute to run the pipeline.
-                  </span>
-                )}
-              </CardContent>
-            </Card>
-
-            {status === "complete" && (
-              <>
-                {/* Live Document Comparison */}
-                <Card className="mb-6">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <Search className="h-4 w-4" />
-                      Document Comparison
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <DocumentComparison
-                      original={originalText}
-                      anonymized={maskedText}
-                    />
-                  </CardContent>
-                </Card>
-
-                {/* Live JSON Extraction Results */}
-                <div className="grid grid-cols-2 gap-4">
-                  <Card>
-                    <CardHeader className="py-3">
-                      <CardTitle className="text-sm text-muted-foreground">🔒 LLM Output (Anonymized Data)</CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-2">
-                      <JsonResponseViewer data={extractedJson} />
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="py-3">
-                      <CardTitle className="text-sm font-bold text-coral">🔓 Final Output (Restored Real Data)</CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-2">
-                      <JsonResponseViewer data={unmaskedJson} />
-                    </CardContent>
-                  </Card>
-                </div>
-              </>
-            )}
-          </section>
         </div>
       </main>
     </div>
   );
 }
+
+export default TemplateProcess;
