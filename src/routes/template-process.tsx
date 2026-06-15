@@ -6,6 +6,7 @@ import { DocumentComparison } from "@/components/DocumentComparison";
 import { JsonResponseViewer } from "@/components/JsonResponseViewer";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Rocket, CheckCircle2, Loader2, Search, AlertCircle } from "lucide-react";
 import { processDocument, ApiError } from "@/lib/api";
 
