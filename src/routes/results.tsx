@@ -18,7 +18,7 @@ import { getResults, type ResultRow } from "@/lib/api";
 export const Route = createFileRoute("/results")({
   head: () => ({
     meta: [
-      { title: "Result Database — Document AI" },
+      { title: "Action Center — Document AI" },
       {
         name: "description",
         content: "Browse historical extraction results from the document AI pipeline.",
@@ -54,9 +54,9 @@ function Results() {
       <main className="mx-auto max-w-7xl px-6 py-8">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">Result Database</h2>
+            <h2 className="text-2xl font-bold tracking-tight">Action Center</h2>
             <p className="text-sm text-muted-foreground">
-              All persisted extraction outputs.
+              Validation & Monitoring
             </p>
           </div>
           <div className="relative w-full max-w-xs">
@@ -72,7 +72,7 @@ function Results() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Recent extractions</CardTitle>
+            <CardTitle className="text-base">Extractions</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>

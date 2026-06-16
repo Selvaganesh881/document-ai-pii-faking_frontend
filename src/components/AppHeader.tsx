@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 const tabs = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/template-process", label: "Template & Process", icon: Workflow, exact: false },
-  { to: "/results", label: "Result Database", icon: Database, exact: false },
+  { to: "/results", label: "Action Center", icon: Database, exact: false },
 ] as const;
 
 export function AppHeader() {

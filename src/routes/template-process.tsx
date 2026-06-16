@@ -1,13 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useRef, memo } from "react";
+import { useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { PdfUploadZone } from "@/components/PdfUploadZone";
 import { DocumentComparison } from "@/components/DocumentComparison";
-import { JsonResponseViewer } from "@/components/JsonResponseViewer";
+import { TextareaInput } from "@/components/TextareaInput";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Rocket, CheckCircle2, Loader2, Search, AlertCircle } from "lucide-react";
+import { 
+  Rocket, 
+  CheckCircle2, 
+  Loader2, 
+  Search, 
+  AlertCircle,
+  Copy,
+  Maximize2,
+  Minimize2,
+  Check,
+  Brain
+} from "lucide-react";
 import { processDocument, ApiError } from "@/lib/api";
+import { JsonComparison } from "@/components/JsonComparison";
+import { PipelineVisualizer } from "@/components/PipelineVisualizer";
 
 export const Route = createFileRoute("/template-process")({
   head: () => ({
@@ -28,64 +41,133 @@ EXTRACTION INSTRUCTIONS:
 - For missing numbers or booleans, use: null.`;
 
 const DEFAULT_SCHEMA = `{
-  "title": "DocumentExtraction",
+  "title": "InvoiceExtraction",
   "type": "object",
   "properties": {
-    "account_holder_name": { "type": "string" },
-    "total_balance": { "type": "number" },
-    "account_number": { "type": "string" }
+    "invoice_number": {
+      "type": "string",
+      "description": "Unique invoice identifier"
+    },
+    "invoice_date": {
+      "type": "string",
+      "description": "Invoice issue date"
+    },
+    "due_date": {
+      "type": "string",
+      "description": "Payment due date"
+    },
+    "seller_name": {
+      "type": "string",
+      "description": "Seller or issuer name"
+    },
+    "seller_address": {
+      "type": "string",
+      "description": "Seller address"
+    },
+    "total_amount": {
+      "type": "number",
+      "description": "Final payable amount"
+    }
   },
-  "required": ["account_holder_name", "total_balance"]
+  "required": [
+    "invoice_number",
+    "invoice_date",
+    "seller_name",
+    "total_amount"
+  ]
 }`;
 
 type Status = "idle" | "running" | "complete" | "error";
 
 // ------------------------------------------------------------------
-// 1. Reusable, safe Textarea component (Freeze issue fixed here)
+// 1. Generic Expandable Card (Wraps ANY content)
 // ------------------------------------------------------------------
-const TextareaInput = memo(function TextareaInput({
-  label,
-  defaultValue,
-  inputRef,
-}: {
-  label: string;
-  defaultValue: string;
-  inputRef: React.RefObject<HTMLTextAreaElement>;
+function ExpandableCard({ 
+  title, 
+  titleClassName,
+  children,
+  copyText
+}: { 
+  title: React.ReactNode;
+  titleClassName?: string;
+  children: React.ReactNode;
+  copyText?: string;
 }) {
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!copyText) return;
+    navigator.clipboard.writeText(copyText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const cardClasses = isMaximized 
+    ? "fixed inset-4 z-50 flex flex-col shadow-2xl transition-all duration-200 bg-background" 
+    : "flex flex-col h-full";
+
   return (
-    <div>
-      <label className="mb-2 block text-sm font-medium">{label}</label>
-      <textarea
-        ref={inputRef}
-        defaultValue={defaultValue}
-        spellCheck={false}
-        rows={10}
-        className="w-full h-64 rounded-md border border-slate-300 bg-slate-50 p-4 font-mono text-xs leading-relaxed text-slate-900 shadow-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-      />
-    </div>
+    <>
+      {isMaximized && (
+        <div 
+          className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm" 
+          onClick={() => setIsMaximized(false)} 
+        />
+      )}
+      
+      <Card className={cardClasses}>
+        <CardHeader className="py-3 flex flex-row items-center justify-between space-y-0 border-b bg-muted/30">
+          <CardTitle className={`text-sm ${titleClassName || ""}`}>
+            {title}
+          </CardTitle>
+          <div className="flex items-center gap-1">
+            {copyText && (
+              <Button variant="ghost" size="icon" onClick={handleCopy} title="Copy Content" className="h-8 w-8">
+                {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" onClick={() => setIsMaximized(!isMaximized)} title={isMaximized ? "Minimize" : "Maximize"} className="h-8 w-8">
+              {isMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className={`pt-4 flex flex-col min-h-0 ${isMaximized ? "flex-1" : "h-full"}`}>
+          {children}
+        </CardContent>
+      </Card>
+    </>
   );
-});
+}
 
 // ------------------------------------------------------------------
-// 2. Configuration Panel (Input API)
+// 2. Configuration Panel
 // ------------------------------------------------------------------
 function ConfigurationPanel({
+  file,
   setFile,
-  instructionRef,
-  schemaRef,
+  instruction,
+  setInstruction,
+  schema,
+  setSchema,
   status,
   errorMessage,
   onReset,
   onExecute,
 }: {
+  file: File | null;
   setFile: (file: File | null) => void;
-  instructionRef: React.RefObject<HTMLTextAreaElement>;
-  schemaRef: React.RefObject<HTMLTextAreaElement>;
+  instruction: string;
+  setInstruction: (val: string) => void;
+  schema: string;
+  setSchema: (val: string) => void;
   status: Status;
   errorMessage: string;
   onReset: () => void;
   onExecute: () => void;
 }) {
+  const isRunning = status === "running";
+
   return (
     <section className="lg:col-span-5">
       <h2 className="mb-4 text-lg font-bold tracking-tight">1. Configuration</h2>
@@ -93,38 +175,40 @@ function ConfigurationPanel({
       <div className="space-y-5">
         <div>
           <label className="mb-2 block text-sm font-medium">Upload Financial PDF</label>
-          <PdfUploadZone onFileSelect={setFile} />
+          <PdfUploadZone selectedFile={file} onFileSelect={setFile} disabled={isRunning} />
         </div>
 
         <TextareaInput
           label="User Instruction"
-          defaultValue={DEFAULT_INSTRUCTION}
-          inputRef={instructionRef}
+          value={instruction}
+          onChange={setInstruction}
+          disabled={isRunning}
         />
 
         <TextareaInput
           label="Expected JSON Schema"
-          defaultValue={DEFAULT_SCHEMA}
-          inputRef={schemaRef}
+          value={schema}
+          onChange={setSchema}
+          disabled={isRunning}
         />
 
         {status === "error" && (
-          <div className="flex items-center gap-2 rounded-md bg-red-50 p-3 text-sm text-red-600">
-            <AlertCircle className="h-4 w-4" />
-            {errorMessage}
+          <div className="flex items-center gap-2 rounded-md bg-red-50 p-3 text-sm text-red-600 border border-red-200">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            <span className="font-medium break-words">{errorMessage}</span>
           </div>
         )}
 
         <div className="flex gap-2">
-          <Button onClick={onReset} variant="outline" className="flex-1">
+          <Button onClick={onReset} variant="outline" className="flex-1" disabled={isRunning}>
             Reset Defaults
           </Button>
           <Button
             onClick={onExecute}
-            disabled={status === "running"}
+            disabled={isRunning}
             className="flex-1 bg-[#FF6F61] text-white hover:bg-[#FF6F61]/90"
           >
-            {status === "running" ? (
+            {isRunning ? (
               <span className="flex items-center justify-center">
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 Running…
@@ -143,7 +227,7 @@ function ConfigurationPanel({
 }
 
 // ------------------------------------------------------------------
-// 3. Results Panel (Output View)
+// 3. Execution Results Panel
 // ------------------------------------------------------------------
 function ExecutionResultsPanel({
   status,
@@ -162,17 +246,23 @@ function ExecutionResultsPanel({
     <section className="lg:col-span-7">
       <h2 className="mb-4 text-lg font-bold tracking-tight">2. Pipeline Execution</h2>
 
+      {/* Top Status Banner */}
       <Card className="mb-6">
         <CardContent className="flex items-center gap-2 py-3">
           {status === "running" ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              <span className="text-sm">Executing graph... Documenting passing to Qwen3-4B...</span>
+              <span className="text-sm">Executing graph... Documenting passing to LLM...</span>
             </>
           ) : status === "complete" ? (
             <>
               <CheckCircle2 className="h-4 w-4 text-green-600" />
               <span className="text-sm font-medium">Graph Execution Complete!</span>
+            </>
+          ) : status === "error" ? (
+            <>
+              <AlertCircle className="h-4 w-4 text-red-600" />
+              <span className="text-sm text-red-600">Pipeline execution failed. Check the configuration panel.</span>
             </>
           ) : (
             <span className="text-sm text-muted-foreground">
@@ -182,42 +272,43 @@ function ExecutionResultsPanel({
         </CardContent>
       </Card>
 
+      {/* NEW: Show the architecture map when Idle */}
+      {status === "idle" && (
+        <PipelineVisualizer />
+      )}
+
+      {/* Existing Execution Results (Only shows when complete) */}
       {status === "complete" && (
         <>
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Search className="h-4 w-4" />
-                Document Comparison
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+          <div className="mb-6">
+            <ExpandableCard 
+              title={
+                <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
+                  <Search className="h-4 w-4" />
+                  Document Comparison
+                </div>
+              }
+              copyText={`--- ORIGINAL TEXT ---\n${originalText}\n\n--- ANONYMIZED TEXT ---\n${maskedText}`}
+            >
               <DocumentComparison original={originalText} anonymized={maskedText} />
-            </CardContent>
-          </Card>
+            </ExpandableCard>
+          </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <Card>
-              <CardHeader className="py-3">
-                <CardTitle className="text-sm text-muted-foreground">
-                  🔒 LLM Output (Anonymized Data)
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-2">
-                <JsonResponseViewer data={extractedJson} />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="py-3">
-                <CardTitle className="text-sm font-bold text-coral">
-                  🔓 Final Output (Restored Real Data)
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-2">
-                <JsonResponseViewer data={unmaskedJson} />
-              </CardContent>
-            </Card>
+          <div className="mb-6">
+            <ExpandableCard 
+              title={
+                <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
+                  <Brain className="h-4 w-4" />
+                  JSON Output Comparison
+                </div>
+              }
+              copyText={`--- ANONYMIZED JSON ---\n${JSON.stringify(extractedJson, null, 2)}\n\n--- RESTORED JSON ---\n${JSON.stringify(unmaskedJson, null, 2)}`}
+            >
+              <JsonComparison 
+                anonymizedJson={extractedJson} 
+                restoredJson={unmaskedJson} 
+              />
+            </ExpandableCard>
           </div>
         </>
       )}
@@ -229,8 +320,8 @@ function ExecutionResultsPanel({
 // 4. Main Parent Component (State Orchestrator)
 // ------------------------------------------------------------------
 function TemplateProcess() {
-  const instructionRef = useRef<HTMLTextAreaElement>(null);
-  const schemaRef = useRef<HTMLTextAreaElement>(null);
+  const [instruction, setInstruction] = useState(DEFAULT_INSTRUCTION);
+  const [schema, setSchema] = useState(DEFAULT_SCHEMA);
 
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<Status>("idle");
@@ -242,8 +333,20 @@ function TemplateProcess() {
   const [unmaskedJson, setUnmaskedJson] = useState<any>(null);
 
   const handleResetDefaults = () => {
-    if (instructionRef.current) instructionRef.current.value = DEFAULT_INSTRUCTION;
-    if (schemaRef.current) schemaRef.current.value = DEFAULT_SCHEMA;
+    setInstruction(DEFAULT_INSTRUCTION);
+    setSchema(DEFAULT_SCHEMA);
+  };
+
+  const handleFileChange = (newFile: File | null) => {
+    setFile(newFile);
+    if (status === "complete" || status === "error") {
+      setStatus("idle");
+      setErrorMessage("");
+      setOriginalText("");
+      setMaskedText("");
+      setExtractedJson(null);
+      setUnmaskedJson(null);
+    }
   };
 
   const handleExecute = async () => {
@@ -253,17 +356,23 @@ function TemplateProcess() {
       return;
     }
 
+    // Capture precise syntax location error if validation fails
+    try {
+      JSON.parse(schema);
+    } catch (e: any) {
+      setErrorMessage(`Invalid Expected JSON Schema format: ${e.message}`);
+      setStatus("error");
+      return;
+    }
+
     setStatus("running");
     setErrorMessage("");
 
     try {
-      const currentInstruction = instructionRef.current?.value || "";
-      const currentSchema = schemaRef.current?.value || "";
-
       const result = await processDocument({
         file,
-        user_instruction: currentInstruction,
-        json_schema: currentSchema,
+        user_instruction: instruction,
+        json_schema: schema,
       });
 
       if (result.status === "success") {
@@ -294,9 +403,12 @@ function TemplateProcess() {
         <div className="grid gap-6 lg:grid-cols-12">
           
           <ConfigurationPanel
-            setFile={setFile}
-            instructionRef={instructionRef}
-            schemaRef={schemaRef}
+            file={file}
+            setFile={handleFileChange}
+            instruction={instruction}
+            setInstruction={setInstruction}
+            schema={schema}
+            setSchema={setSchema}
             status={status}
             errorMessage={errorMessage}
             onReset={handleResetDefaults}
