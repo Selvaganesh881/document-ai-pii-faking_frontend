@@ -1,16 +1,14 @@
-import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Workflow, Database, Sparkles } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Link } from "@tanstack/react-router";
+import { LayoutDashboard, Workflow, Database, Sparkles, Layers } from "lucide-react";
 
 const tabs = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/template-process", label: "Template & Process", icon: Workflow, exact: false },
+  { to: "/bulk-processing", label: "Bulk Processing", icon: Layers, exact: false },
   { to: "/results", label: "Action Center", icon: Database, exact: false },
 ] as const;
 
 export function AppHeader() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-
   return (
     <header className="border-b bg-card">
       <div className="mx-auto max-w-7xl px-6 pt-6">
@@ -30,18 +28,19 @@ export function AppHeader() {
 
         <nav className="mt-5 flex gap-1 overflow-x-auto">
           {tabs.map((t) => {
-            const active = t.exact ? pathname === t.to : pathname.startsWith(t.to);
             const Icon = t.icon;
             return (
               <Link
                 key={t.to}
                 to={t.to}
-                className={cn(
-                  "flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
-                  active
-                    ? "border-coral text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                )}
+                activeOptions={{ exact: t.exact }}
+                inactiveProps={{
+                  className: "border-transparent text-muted-foreground hover:text-foreground"
+                }}
+                activeProps={{
+                  className: "border-coral text-foreground"
+                }}
+                className="flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors"
               >
                 <Icon className="h-4 w-4" />
                 {t.label}

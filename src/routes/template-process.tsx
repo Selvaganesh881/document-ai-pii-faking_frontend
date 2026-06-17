@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { PdfUploadZone } from "@/components/PdfUploadZone";
 import { DocumentComparison } from "@/components/DocumentComparison";
 import { TextareaInput } from "@/components/TextareaInput";
 import { Button } from "@/components/ui/button";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Rocket, 
@@ -16,7 +16,8 @@ import {
   Maximize2,
   Minimize2,
   Check,
-  Brain
+  Brain,
+  Timer
 } from "lucide-react";
 import { processDocument, ApiError } from "@/lib/api";
 import { JsonComparison } from "@/components/JsonComparison";
@@ -32,49 +33,113 @@ export const Route = createFileRoute("/template-process")({
   component: TemplateProcess,
 });
 
-const DEFAULT_INSTRUCTION = `Extract the parameters defined in the schema from the document provided below.
+const DEFAULT_INSTRUCTION = `ROLE & OBJECTIVE:
+You are a precision-focused Document AI specialized in structured financial data extraction. Your task is to extract exact parameters from the provided raw text invoice and map them perfectly to the requested JSON schema.
 
-EXTRACTION INSTRUCTIONS:
-- Extract values exactly as they appear in the text.
-- If a specific value cannot be found in the document, you must still include the key in your JSON response.
-- For missing string values, use the exact text: "NOT_FOUND".
-- For missing numbers or booleans, use: null.`;
+EXTRACTION HIERARCHY & NORMALIZATION RULES:
+1. DATES: Normalize ALL dates into the strict ISO 8601 standard format: YYYY-MM-DD. 
+   - Example: "October 12, 2026" must be extracted as "2026-10-12".
+   - If an invoice says "Upon Receipt" or "Net 30" instead of an actual date string, parse the due_date value as "NOT_FOUND".
+
+2. NUMBERS: Strip out all currency symbols ($, €, £), commas used as thousands separators, and white spaces. Ensure the resulting value is a raw floating-point number or integer.
+   - Example: "$5,696.25" must be extracted as 5696.25.
+
+3. TEXT & ADDRESSES: Clean up unnecessary line breaks within single fields like corporate names or physical addresses. Format them into a single-line, comma-separated string.
+
+LINE ITEMS SUB-OBJECT RULES:
+- Break out each unique line item row from the table into a distinct object within the "line_items" array.
+- Include sub-bullet points or item descriptions directly within the main description field string, cleanly separated by a hyphen or space.
+
+EDGE CASE & ERROR HANDLING:
+- Strictly follow the property rules in the schema.
+- If a property string field cannot be found anywhere in the text, assign it the exact text value: "NOT_FOUND".
+- If a property number or array field cannot be found, assign it a JSON literal value of: null.
+- DO NOT invent, hallucinate, or infer data. Extract values exactly as they present themselves.
+
+OUTPUT FORMAT:
+Return your answer ONLY as a single, valid JSON object matching the schema. Do not write markdown blocks like ### or comma, quatations json ... , and do not append conversational text before or after the JSON payload.`;
 
 const DEFAULT_SCHEMA = `{
-  "title": "InvoiceExtraction",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Intelligent_Invoice_Extraction",
+  "description": "Standardized schema for structured financial document data extraction.",
   "type": "object",
   "properties": {
     "invoice_number": {
       "type": "string",
-      "description": "Unique invoice identifier"
+      "description": "The unique identifying alphanumeric string or number of the invoice as stated on the document."
     },
     "invoice_date": {
       "type": "string",
-      "description": "Invoice issue date"
+      "format": "date",
+      "description": "The date the invoice was issued. Normalize to ISO 8601 format (YYYY-MM-DD)."
     },
     "due_date": {
       "type": "string",
-      "description": "Payment due date"
+      "format": "date",
+      "description": "The final date payment is expected. Normalize to ISO 8601 format (YYYY-MM-DD)."
     },
     "seller_name": {
       "type": "string",
-      "description": "Seller or issuer name"
+      "description": "The full legal name or trade name of the business issuing the invoice."
     },
     "seller_address": {
       "type": "string",
-      "description": "Seller address"
+      "description": "The complete billing address of the seller, including street, city, state, and zip code."
+    },
+    "currency": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 3,
+      "description": "The 3-letter ISO 4217 currency code (e.g., USD, EUR, CAD). Default to USD if symbol is $."
+    },
+    "subtotal_amount": {
+      "type": ["number", "null"],
+      "description": "The total amount before taxes, discounts, or additions."
+    },
+    "tax_amount": {
+      "type": ["number", "null"],
+      "description": "The total tax amount charged on this invoice."
     },
     "total_amount": {
       "type": "number",
-      "description": "Final payable amount"
+      "description": "The final absolute payable amount including all taxes and fees."
+    },
+    "line_items": {
+      "type": "array",
+      "description": "Individual items or services listed on the invoice.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "The description text of the line item item or service."
+          },
+          "quantity": {
+            "type": ["number", "null"],
+            "description": "The number of items or hours logged."
+          },
+          "unit_price": {
+            "type": ["number", "null"],
+            "description": "The cost per single unit or single hour."
+          },
+          "amount": {
+            "type": ["number", "null"],
+            "description": "The total amount for this line item (quantity * unit_price)."
+          }
+        },
+        "required": ["description", "amount"]
+      }
     }
   },
   "required": [
     "invoice_number",
     "invoice_date",
     "seller_name",
+    "currency",
     "total_amount"
-  ]
+  ],
+  "additionalProperties": false
 }`;
 
 type Status = "idle" | "running" | "complete" | "error";
@@ -174,7 +239,7 @@ function ConfigurationPanel({
 
       <div className="space-y-5">
         <div>
-          <label className="mb-2 block text-sm font-medium">Upload Financial PDF</label>
+          <label className="mb-2 block text-sm font-medium">Upload PDF</label>
           <PdfUploadZone selectedFile={file} onFileSelect={setFile} disabled={isRunning} />
         </div>
 
@@ -235,12 +300,14 @@ function ExecutionResultsPanel({
   maskedText,
   extractedJson,
   unmaskedJson,
+  elapsedTime, // <-- NEW: Receive elapsedTime
 }: {
   status: Status;
   originalText: string;
   maskedText: string;
   extractedJson: any;
   unmaskedJson: any;
+  elapsedTime: number;
 }) {
   return (
     <section className="lg:col-span-7">
@@ -248,31 +315,41 @@ function ExecutionResultsPanel({
 
       {/* Top Status Banner */}
       <Card className="mb-6">
-        <CardContent className="flex items-center gap-2 py-3">
-          {status === "running" ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              <span className="text-sm">Executing graph... Documenting passing to LLM...</span>
-            </>
-          ) : status === "complete" ? (
-            <>
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
-              <span className="text-sm font-medium">Graph Execution Complete!</span>
-            </>
-          ) : status === "error" ? (
-            <>
-              <AlertCircle className="h-4 w-4 text-red-600" />
-              <span className="text-sm text-red-600">Pipeline execution failed. Check the configuration panel.</span>
-            </>
-          ) : (
-            <span className="text-sm text-muted-foreground">
-              Upload a file and click Execute to run the pipeline.
-            </span>
+        <CardContent className="flex items-center justify-between py-3">
+          <div className="flex items-center gap-2">
+            {status === "running" ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-sm">Executing Pipeline... Document passing to LLM...</span>
+              </>
+            ) : status === "complete" ? (
+              <>
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                <span className="text-sm font-medium">Pipeline Execution Complete!</span>
+              </>
+            ) : status === "error" ? (
+              <>
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <span className="text-sm text-red-600">Pipeline execution failed. Check the configuration panel.</span>
+              </>
+            ) : (
+              <span className="text-sm text-muted-foreground">
+                Upload a file and click Execute to run the pipeline.
+              </span>
+            )}
+          </div>
+          
+          {/* NEW: Timer Display */}
+          {(status === "running" || status === "complete") && (
+            <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+              <Timer className="h-4 w-4" />
+              <span>{elapsedTime.toFixed(1)}s</span>
+            </div>
           )}
         </CardContent>
       </Card>
 
-      {/* NEW: Show the architecture map when Idle */}
+      {/* Show the architecture map when Idle */}
       {status === "idle" && (
         <PipelineVisualizer />
       )}
@@ -320,8 +397,21 @@ function ExecutionResultsPanel({
 // 4. Main Parent Component (State Orchestrator)
 // ------------------------------------------------------------------
 function TemplateProcess() {
-  const [instruction, setInstruction] = useState(DEFAULT_INSTRUCTION);
-  const [schema, setSchema] = useState(DEFAULT_SCHEMA);
+  const [instruction, setInstruction] = useState(
+    () => sessionStorage.getItem("template_instruction") || DEFAULT_INSTRUCTION
+  );
+
+  const [schema, setSchema] = useState(
+    () => sessionStorage.getItem("template_schema") || DEFAULT_SCHEMA
+  );
+
+  useEffect(() => {
+    sessionStorage.setItem("template_instruction", instruction);
+  }, [instruction]);
+
+  useEffect(() => {
+    sessionStorage.setItem("template_schema", schema);
+  }, [schema]); 
 
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<Status>("idle");
@@ -331,6 +421,17 @@ function TemplateProcess() {
   const [maskedText, setMaskedText] = useState("");
   const [extractedJson, setExtractedJson] = useState<any>(null);
   const [unmaskedJson, setUnmaskedJson] = useState<any>(null);
+
+  // NEW: Timer State & Ref
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // NEW: Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
   const handleResetDefaults = () => {
     setInstruction(DEFAULT_INSTRUCTION);
@@ -346,6 +447,7 @@ function TemplateProcess() {
       setMaskedText("");
       setExtractedJson(null);
       setUnmaskedJson(null);
+      setElapsedTime(0); // <-- NEW: Reset timer on new file
     }
   };
 
@@ -367,6 +469,13 @@ function TemplateProcess() {
 
     setStatus("running");
     setErrorMessage("");
+    
+    // NEW: Start Timer
+    setElapsedTime(0);
+    const startTime = Date.now();
+    timerRef.current = setInterval(() => {
+      setElapsedTime((Date.now() - startTime) / 1000);
+    }, 100);
 
     try {
       const result = await processDocument({
@@ -393,6 +502,9 @@ function TemplateProcess() {
           : "Unexpected error while calling the backend."
       );
       setStatus("error");
+    } finally {
+      // NEW: Stop Timer when done (success or fail)
+      if (timerRef.current) clearInterval(timerRef.current);
     }
   };
 
@@ -421,6 +533,7 @@ function TemplateProcess() {
             maskedText={maskedText}
             extractedJson={extractedJson}
             unmaskedJson={unmaskedJson}
+            elapsedTime={elapsedTime} // <-- NEW: Pass down timer state
           />
 
         </div>

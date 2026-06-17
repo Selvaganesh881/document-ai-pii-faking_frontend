@@ -34,7 +34,7 @@ export const TextareaInput = memo(function TextareaInput({
         data-gramm="false"
         data-gramm_editor="false"
         data-enable-grammarly="false"
-        data-1p-ignore="true"       // Blocks 1Password
+        data-1p-ignore="true"       
         data-lpignore="true"        // Blocks LastPass
         data-form-type="other"      // Generic block for form-fillers
 

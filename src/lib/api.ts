@@ -86,8 +86,12 @@ export interface ResultRow {
   original_filename: string;
   created_at: string;
   status: "complete" | "failed" | string;
-  extracted_json?: unknown;
-  unmasked_json?: unknown;
+  original_text: string;
+  masked_text: string;
+  extracted_json: unknown;
+  unmasked_json: unknown;
+  // extracted_json?: unknown;
+  // unmasked_json?: unknown;
 }
 
 export interface ResultsResponse {
@@ -120,4 +124,11 @@ export function getDashboardStats(signal?: AbortSignal): Promise<DashboardRespon
 
 export function getResults(signal?: AbortSignal): Promise<ResultsResponse> {
   return request<ResultsResponse>("/api/results", { signal });
+}
+
+export function deleteResult(id: string | number, signal?: AbortSignal): Promise<{status: string, message?: string}> {
+  return request<{status: string, message?: string}>(`/api/results/${id}`, {
+    method: "DELETE",
+    signal,
+  });
 }

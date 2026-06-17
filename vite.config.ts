@@ -1,18 +1,26 @@
-// import { defineConfig } from "@lovable.dev/vite-tanstack-config";
-
-// export default defineConfig({});
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-// 1. Generate the Lovable config (which contains React, your Router, AND the buggy tagger)
+// 1. Generate the base config
 const config = defineConfig({});
 
-// 2. Surgically remove the tagger plugin that is freezing your browser
+// 2. Filter out both the buggy tagger AND the obsolete tsconfig-paths plugin
 if (config.plugins) {
   config.plugins = config.plugins.flat().filter((plugin) => {
-    // Keep the plugin ONLY if its name does not contain "tagger"
-    return plugin && plugin.name && !plugin.name.toLowerCase().includes("tagger");
+    if (!plugin || !plugin.name) return True;
+    
+    const name = plugin.name.toLowerCase();
+    // Drop the tagger and the old paths plugin
+    if (name.includes("tagger") || name.includes("tsconfig-paths")) {
+      return false; 
+    }
+    return true;
   });
 }
 
-// 3. Export the clean, freeze-free config
+// 3. Enable Vite's native TS Config Paths resolution
+if (!config.resolve) {
+  config.resolve = {};
+}
+config.resolve.tsconfigPaths = true;
+
 export default config;

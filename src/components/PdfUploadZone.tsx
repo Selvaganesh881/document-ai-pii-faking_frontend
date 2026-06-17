@@ -110,7 +110,7 @@ export function PdfUploadZone({ selectedFile, onFileSelect, disabled }: Props) {
         >
           <Upload className={`h-6 w-6 ${isDragging ? "text-blue-500" : "text-muted-foreground"}`} />
           <p className="text-sm font-medium text-foreground">
-            {isDragging ? "Drop PDF here" : "Upload financial PDF"}
+            {isDragging ? "Drop PDF here" : "Upload PDF"}
           </p>
           <p className="text-xs text-muted-foreground">
             Click or drag and drop — max {MAX_FILE_SIZE_MB}MB
